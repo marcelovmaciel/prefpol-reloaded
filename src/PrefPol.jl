@@ -41,6 +41,8 @@ include("preprocessing_specific.jl")
 include("polarization_measures.jl")
 include("mallows_play.jl")
 include("pipeline.jl")
+include("preference_types.jl")
+
 
 #include("newplotting.jl")
 
