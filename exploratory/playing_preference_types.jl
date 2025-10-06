@@ -46,7 +46,10 @@ pp.pretty(sr, p)   # REPL will display: StrictRank(Alice ≻ Bob ≻ Carol ≻ D
 b_trunc = pp.WeakRank(p, Dict(:Bob=>1, :Alice=>2))
 
 
+pp.rank(b_trunc,p, :Alice)  # 2
+
 wo = pp.to_weakorder(b_trunc)
+
 
 pp.pretty(wo, p)                     # WeakOrder(Carol ≻ Alice ~ Bob ≻ Dave)
 
@@ -62,7 +65,9 @@ b_weak
 
 # Vector input as WeakRank
 b_vec = pp.WeakRank(p, [1,2,3,4])
-b_vec
+
+
+pp.pretty(pp.to_weakorder(b_vec), p)
 
 # asdict (emits only present ranks)
 pp.asdict(b_strict, p)        # full dict
@@ -70,11 +75,16 @@ pp.asdict(b_trunc, p)         # missing Dave
 
 # rank / prefers / indifferent
 pp.rank(b_strict, p, :Alice)              # 1
+
 pp.prefers(b_strict, p, :Alice, :Bob)     # true
+
 pp.indifferent(b_strict, p, :Alice, :Bob) # false
 
+
 pp.rank(b_trunc, p, :Dave)                # missing
+
 pp.prefers(b_trunc, p, :Dave, :Alice)     # false (missing)
+
 pp.indifferent(b_weak, p, :Alice, :Bob)   # true
 
 # Strictify weak ballots
@@ -83,6 +93,11 @@ try
 catch e
     e
 end
+
+
+# TODO: Fix this tie breaker. It hardwires who is going to the front.
+# A proper randomization tie breaker is needed.
+
 
 pp.to_strict(b_trunc; tie_break=:linearize)   # strict order, missing last
 pp.to_strict(b_weak;  tie_break=:linearize)   # strict order, tie broken by id
@@ -115,6 +130,8 @@ pp.to_strict(b_weak; tie_break=:linearize)
 # ------------------------------------------------------------
 # 5) Pairwise & extension policies
 # ------------------------------------------------------------
+
+# TODO: implement the pairwise logic 
 # Default policy (:bottom): ranked ≻ unranked
 pp1 = pp.to_pairwise(b_weak, p; extension=:bottom)
 pp1.matrix
@@ -166,32 +183,6 @@ ppair = pp.to_pairwise(b_weak, p; extension=:bottom)
 (new_ppair, np4, bm4) = pp.restrict(ppair, p, subset_syms)
 new_ppair.matrix; np4; collect(bm4)
 
-# ------------------------------------------------------------
-# 7) CSV readers (requires CSV.jl)
-# ------------------------------------------------------------
-# rank_columns CSV: columns are candidates, cells are ranks (or blank)
-rank_csv = """
-Alice,Bob,Carol,Dave
-1,2,3,4
-2,1,3,
-,1,2,
-"""
-rank_path = mktemp()[1]; open(rank_path, "w") do io; write(io, rank_csv); end
-ballots_rank, pool_rank = pp.read_rank_columns_csv(rank_path)
-length(ballots_rank); pp.candidates(pool_rank)
-ballots_rank[1]; pp.asdict(ballots_rank[2], pool_rank)
-
-# candidate_columns CSV: columns are preference positions, cells are names
-cand_csv = """
-pref1,pref2,pref3
-Alice,Bob,Carol
-Bob,Alice,
-Carol,,
-"""
-cand_path = mktemp()[1]; open(cand_path, "w") do io; write(io, cand_csv); end
-ballots_cand, pool_cand = pp.read_candidate_columns_csv(cand_path; cols=[:pref1,:pref2,:pref3])
-length(ballots_cand); pp.candidates(pool_cand)
-ballots_cand[1]; pp.asdict(ballots_cand[2], pool_cand)
 
 # ------------------------------------------------------------
 # 8) Misc convenience checks
