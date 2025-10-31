@@ -29,8 +29,13 @@ using OrderedCollections: OrderedDict
 using Logging
 using PooledArrays, StaticArrays 
 
+using PrettyTables
+using Crayons
+
 using JLD2, Arrow, TOML
 
+
+using Random: MersenneTwister, randperm
 
 
 
@@ -41,7 +46,9 @@ include("preprocessing_specific.jl")
 include("polarization_measures.jl")
 include("mallows_play.jl")
 include("pipeline.jl")
+include("preferences_ext.jl")
 include("preference_types.jl")
+include("preferences_display.jl")
 
 
 #include("newplotting.jl")

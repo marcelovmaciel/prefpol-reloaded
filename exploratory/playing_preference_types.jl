@@ -1,197 +1,148 @@
 # =========================
-# Interactive smoke tests for PrefPol (Minimal API)
-# Paste & run line-by-line in the REPL
+# Interactive smoke tests
 # =========================
 using Revise
-import PrefPol as pp
+import PrefPol
+const pp = PrefPol
+
+
+
+# Small REPL helpers
+pretty(x)    = pp.pretty(x, p)
+strictify(x) = pp.to_strict(x; tie_break = pp.make_rank_bucket_linearizer(x.ranks))
 
 # ------------------------------------------------------------
-# 1) CandidatePool & basic utilities
+# 1) CandidatePool & basics
 # ------------------------------------------------------------
 p = pp.CandidatePool([:Alice, :Bob, :Carol, :Dave])
 
 p
-
-length(p)                # expect 4
-
-p[:Alice]                # expect PreferenceIndex(1)
-p[:Dave]                 # expect PreferenceIndex(4)
-
-p[1]                     # expect :Alice
-p[4]                     # expect :Dave
-
-collect(keys(p))         # expect [:Alice, :Bob, :Carol, :Dave] (canonical order)
-pp.candidates(p)         # exact order: [:Alice, :Bob, :Carol, :Dave]
-
-pp.to_cmap(p)            # Dict(id=>name), e.g., Dict(0x0001=>:Alice, ...)
+length(p)                # 4
+p[:Alice]                # PreferenceIndex(1)
+p[:Dave]                 # PreferenceIndex(4)
+p[1]                     # :Alice
+p[4]                     # :Dave
+collect(keys(p))         # [:Alice, :Bob, :Carol, :Dave]
+pp.candidates(p)         # same order
+pp.to_cmap(p)            # Dict(id=>name)
 
 # ------------------------------------------------------------
 # 2) WeakRank / StrictRank constructors & predicates
 # ------------------------------------------------------------
-# Strict complete (contiguous 1..N, no ties, no missing)
+# Strict complete
 b_strict = pp.StrictRank(p, [1,2,3,4])
 
+# Strict from permutation of names
+sr = pp.StrictRank(p, [:Bob, :Dave, :Alice, :Carol])
+pp.pretty(sr, p)   # StrictRank(Bob ≻ Dave ≻ Alice ≻ Carol)
 
-
-
-p  = pp.CandidatePool([:Alice,:Bob,:Carol,:Dave])
-
-sr = pp.StrictRank(p,[:Bob, :Dave, :Alice, :Carol] )
-
-pp.pretty(sr, p)   # REPL will display: StrictRank(Alice ≻ Bob ≻ Carol ≻ Dave)
-
-
-
-# Truncated ballot (Dave unranked) — represented as WeakRank
+# Truncated ballot (Dave unranked) — WeakRank
 b_trunc = pp.WeakRank(p, Dict(:Bob=>1, :Alice=>2))
+pp.rank(b_trunc, p, :Alice)  # 2
 
-
-pp.rank(b_trunc,p, :Alice)  # 2
-
+# Weak-order view (levels as Vector{Vector{CandidateId}})
 wo = pp.to_weakorder(b_trunc)
-
-
-pp.pretty(wo, p)                     # WeakOrder(Carol ≻ Alice ~ Bob ≻ Dave)
-
-pp.pretty(wo, p; hide_unranked=true) # WeakOrder(Carol ≻ Alice ~ Bob)  (unranked omitted: Dave)
-
-
-
-b_trunc
+pretty(wo)                         # WeakOrder(Carol ≻ Alice ~ Bob ≻ Dave)
+pp.pretty(wo, p; hide_unranked=true)  # hides last level if unranked exist
 
 # Weak with a tie (Alice ~ Bob), Dave unranked
 b_weak = pp.WeakRank(p, Dict(:Carol=>1, :Alice=>2, :Bob=>2))
-b_weak
 
 # Vector input as WeakRank
 b_vec = pp.WeakRank(p, [1,2,3,4])
-
-
 pp.pretty(pp.to_weakorder(b_vec), p)
 
-# asdict (emits only present ranks)
-pp.asdict(b_strict, p)        # full dict
-pp.asdict(b_trunc, p)         # missing Dave
+# asdict (present ranks only for WeakRank)
+pp.asdict(b_strict, p)
+pp.asdict(b_trunc,  p)
 
 # rank / prefers / indifferent
-pp.rank(b_strict, p, :Alice)              # 1
+pp.rank(b_strict, p, :Alice)                # 1
+pp.prefers(b_strict, p, :Alice, :Bob)       # true
+pp.indifferent(b_strict, p, :Alice, :Bob)   # false
 
-pp.prefers(b_strict, p, :Alice, :Bob)     # true
-
-pp.indifferent(b_strict, p, :Alice, :Bob) # false
-
-
-pp.rank(b_trunc, p, :Dave)                # missing
-
-pp.prefers(b_trunc, p, :Dave, :Alice)     # false (missing)
-
-pp.indifferent(b_weak, p, :Alice, :Bob)   # true
+pp.rank(b_trunc,  p, :Dave)                 # missing
+pp.prefers(b_trunc, p, :Dave, :Alice)       # false (missing treated as not preferred)
+pp.indifferent(b_weak, p, :Alice, :Bob)     # true
 
 # Strictify weak ballots
 try
-    pp.to_strict(b_trunc; tie_break=:error)   # should throw (missing present)
+    pp.to_strict(b_trunc; tie_break=:error)   # throws (missing present)
 catch e
     e
 end
 
-
-# TODO: Fix this tie breaker. It hardwires who is going to the front.
-# A proper randomization tie breaker is needed.
-
-
-pp.to_strict(b_trunc; tie_break=:linearize)   # strict order, missing last
-pp.to_strict(b_weak;  tie_break=:linearize)   # strict order, tie broken by id
+println("WeakRank as WeakOrder (names):")
+println(pretty(pp.to_weakorder(b_weak)))
 
 # ------------------------------------------------------------
-# 3) Permutations & conversions
+# 3) Pairwise checks (policies)
 # ------------------------------------------------------------
-# Permutation of candidate ids (best→worst)
+# Preferred: pass explicit policy objects
+pp_none = pp.to_pairwise(b_weak, p; policy = pp.NonePolicyMissing())     # any missing ⇒ missing
+pp_bot  = pp.to_pairwise(b_weak, p; policy = pp.BottomPolicyMissing())   # ranked ≻ unranked; both unranked ⇒ missing
+
+# Back-compat adapter also works (symbol → policy)
+pp_none_bc = pp.to_pairwise(b_weak, p; extension = :none)
+pp_bot_bc  = pp.to_pairwise(b_weak, p; extension = :bottom)
+
+# Visual check (UI lives in preferences_display.jl)
+pp.show_dodgson_table_color(pp_bot; pool = p)
+
+pp_bot
+pp_bot.matrix
+
+# ------------------------------------------------------------
+# 4) Permutations & conversions
+# ------------------------------------------------------------
+# Candidate-ids (best→worst)
 perm1 = pp.to_perm(b_strict)
 perm1
 
-perm2 = pp.to_perm(b_trunc)  # missing last
+perm2 = pp.to_perm(b_trunc)  # unranked last
 perm2
 
 # Ordered candidate names from StrictRank
 pp.ordered_candidates(b_strict, p)  # [:Alice,:Bob,:Carol,:Dave]
 
 # ------------------------------------------------------------
-# 4) WeakOrder representation & conversions
-# ------------------------------------------------------------
-wo = pp.to_weakorder(b_weak)
-wo
-
-wo.levels                           # e.g. [[3], [1,2], [4]] by ids
-pp.weakorder_symbol_groups(wo, p)   # names at each level
-
-# Linearize a WeakRank (equivalent of old `linearize`)
-pp.to_strict(b_weak; tie_break=:linearize)
-
-# ------------------------------------------------------------
-# 5) Pairwise & extension policies
-# ------------------------------------------------------------
-
-# TODO: implement the pairwise logic 
-# Default policy (:bottom): ranked ≻ unranked
-pp1 = pp.to_pairwise(b_weak, p; extension=:bottom)
-pp1.matrix
-
-# Policy :none => any missing pair = 0
-pp2 = pp.to_pairwise(b_trunc, p; extension=:none)
-pp2.matrix
-
-# Custom extension example: put unranked at top (unranked ≻ ranked)
-_ext_top(ra, rb, i, j, ranks, pool) = (ismissing(ra) && ismissing(rb)) ? 0 :
-                                      (ismissing(ra) ? 1 : (ismissing(rb) ? -1 :
-                                      (Int(rb) - Int(ra) > 0 ? 1 : Int(rb) - Int(ra) < 0 ? -1 : 0)))
-pp3 = pp.to_pairwise(b_trunc, p; extension=_ext_top)
-pp3.matrix
-
-# to_pairwise from different sources
-pp.to_pairwise(b_strict, p).matrix
-pp.to_pairwise(pp.WeakRank(p, Dict(:Alice=>1,:Bob=>2,:Carol=>3,:Dave=>4)), p).matrix
-pp.to_pairwise(pp.to_strict(b_weak; tie_break=:linearize), p).matrix   # force strict first
-
-# Reference to built-ins
-pp.ext_bottom      # function
-pp.ext_none        # function
-
-# ------------------------------------------------------------
-# 6) Restriction hooks
+# 5) Restriction hooks
 # ------------------------------------------------------------
 subset_syms = [:Alice, :Carol, :Dave]
-(new_pool, backmap) = pp.restrict(p, subset_syms)
-new_pool
-collect(backmap)   # new→old ids, expect [1,3,4]
 
-# Restrict WeakRank
+# There is no standalone `restrict(::CandidatePool, ...)`.
+# Use a preference restriction to obtain (new_pool, backmap).
 (new_b_trunc, np1, bm1) = pp.restrict(b_trunc, p, subset_syms)
-new_b_trunc; np1; collect(bm1)
+new_b_trunc; np1; collect(bm1)      # new→old ids
 pp.asdict(new_b_trunc, np1)
 
-# Restrict StrictRank (then show permutation)
+# Restrict StrictRank
 (new_b_strict, np2, bm2) = pp.restrict(b_strict, p, subset_syms)
 new_b_strict; np2; collect(bm2)
 pp.to_perm(new_b_strict)
 
-# Restrict WeakOrder
-(new_wo, np3, bm3) = pp.restrict(wo, p, subset_syms)
-new_wo.levels; np3; collect(bm3)
-
 # Restrict Pairwise
-ppair = pp.to_pairwise(b_weak, p; extension=:bottom)
-(new_ppair, np4, bm4) = pp.restrict(ppair, p, subset_syms)
-new_ppair.matrix; np4; collect(bm4)
-
+ppair = pp.to_pairwise(b_weak, p; policy = pp.BottomPolicyMissing())
+(new_ppair, np3, bm3) = pp.restrict(ppair, p, subset_syms)
+new_ppair.matrix; np3; collect(bm3)
 
 # ------------------------------------------------------------
-# 8) Misc convenience checks
+# 6) Weak-order name rendering on restricted pool
 # ------------------------------------------------------------
-np = new_pool
-np[:Carol]   # expect PreferenceIndex(2) in the restricted pool
-np[2]        # expect :Carol
+pp.weakorder_symbol_groups(pp.to_weakorder(new_b_trunc), np1)
 
-# Show weak-order names for restricted data
-pp.weakorder_symbol_groups(new_wo, np)
+# ------------------------------------------------------------
+# 7) Custom policy example
+# ------------------------------------------------------------
+# Unranked-at-top: missing ≻ ranked; both missing ⇒ missing
+struct TopPolicy <: pp.ExtensionPolicy end
+pp.compare_maybe(::TopPolicy, ra, rb, i, j, ranks, pool) =
+    ismissing(ra) && ismissing(rb) ? missing :
+    ismissing(ra) ? Int8(1) :
+    ismissing(rb) ? Int8(-1) :
+    (Int(rb) - Int(ra) > 0 ? Int8(1) : Int8(Int(rb) - Int(ra) < 0 ? -1 : 0))
 
-# Done. Evaluate any line again to re-inspect values.
+pp_top = pp.to_pairwise(b_trunc, p; policy = TopPolicy())
+pp_top.matrix
+
+# Done — re-evaluate lines as needed.
